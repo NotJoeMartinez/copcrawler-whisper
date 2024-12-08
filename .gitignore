@@ -188,6 +188,7 @@ cython_debug/
 #.idea/
 
 
+data/
 whisper_tiny_atco2_v2/
 whisper_tiny_atco2_v2
 models/

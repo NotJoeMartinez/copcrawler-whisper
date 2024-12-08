@@ -1,6 +1,5 @@
-# import huggingface_hub
-
-from datasets import load_dataset, DatasetDict
+import torch
+from datasets import load_dataset, DatasetDict, Audio
 from transformers import (
     WhisperTokenizer, 
     WhisperProcessor, 
@@ -9,13 +8,9 @@ from transformers import (
     Seq2SeqTrainingArguments, 
     Seq2SeqTrainer
 ) 
-from datasets import Audio
 from dataclasses import dataclass
 from typing import Any, Dict, List, Union
-
-import torch
 import evaluate
-# huggingface_hub.login()
 
 def main():
     fine_tuner = FineTuner()
@@ -27,7 +22,9 @@ class FineTuner:
         self.model_id = 'openai/whisper-tiny'
         self.out_dir = 'whisper_tiny_atco2_v2'
         self.epochs = 10
-        self.batch_size = 32
+        
+        # Reduce batch sizes to fit into MPS memory more easily
+        self.batch_size = 8
 
         print("Loading feature extractor and tokenizer")
         self.feature_extractor = WhisperFeatureExtractor.from_pretrained(self.model_id)
@@ -38,26 +35,25 @@ class FineTuner:
         self.metric = evaluate.load('wer')
 
     def run(self):
-
         print("Loading dataset")
         atc_dataset_train = load_dataset('jlvdoorn/atco2-asr-atcosim', split='train')
         atc_dataset_valid = load_dataset('jlvdoorn/atco2-asr-atcosim', split='validation')
         
         print("Preparing data")
+        # Reduce the number of workers and processes 
+        # to avoid overhead on a laptop environment.
         atc_dataset_train = atc_dataset_train.cast_column('audio', Audio(sampling_rate=16000))
         atc_dataset_valid = atc_dataset_valid.cast_column('audio', Audio(sampling_rate=16000))
 
         atc_dataset_train = atc_dataset_train.map(
             self.prepare_dataset, 
-            num_proc=4
+            num_proc=1 # reduce from 4 to 1
         )
         atc_dataset_valid = atc_dataset_valid.map(
             self.prepare_dataset, 
-            num_proc=4
+            num_proc=1
         )
 
-
-        # whispter model
         print("Loading model")
         model = WhisperForConditionalGeneration.from_pretrained(self.model_id)
         model.generation_config.task = 'transcribe'
@@ -68,25 +64,24 @@ class FineTuner:
             decoder_start_token_id=model.config.decoder_start_token_id,
         )
 
+        # Detect MPS availability
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        print(f"Using device: {device}")
+        model.to(device)
 
-        # Define tranining configuration
-
-        model_id = self.model_id
-        out_dir = self.out_dir
-        epochs = self.epochs
-        batch_size = self.batch_size
-
+        # Adjust training arguments for MPS usage
+        # Switch bf16 to False and fp16 to True for MPS acceleration
         training_args = Seq2SeqTrainingArguments(
-            output_dir=out_dir, 
-            per_device_train_batch_size=batch_size,
-            per_device_eval_batch_size=batch_size,
-            gradient_accumulation_steps=1, 
-            learning_rate=0.00001,
+            output_dir=self.out_dir, 
+            per_device_train_batch_size=self.batch_size,
+            per_device_eval_batch_size=self.batch_size,
+            gradient_accumulation_steps=2,  # increase accumulation if needed
+            learning_rate=1e-5,
             warmup_steps=1000,
-            bf16=True,
             fp16=False,
-            num_train_epochs=epochs,
-            evaluation_strategy='epoch',
+            bf16=False,
+            num_train_epochs=self.epochs,
+            evaluation_strategy='epoch', 
             logging_strategy='epoch',
             save_strategy='epoch',
             predict_with_generate=True,
@@ -95,7 +90,8 @@ class FineTuner:
             load_best_model_at_end=True,
             metric_for_best_model='wer',
             greater_is_better=False,
-            dataloader_num_workers=8,
+            # Reduce number of workers to avoid overhead
+            dataloader_num_workers=2,
             save_total_limit=2,
             lr_scheduler_type='constant',
             seed=42,
@@ -112,19 +108,13 @@ class FineTuner:
             tokenizer=self.processor.feature_extractor,
         )
 
-        # train model
         print("Training model")
         trainer.train()
 
         print("Saving model")
-        model.save_pretrained(f"{out_dir}/best_model")
-        print("tokenizer.save_pretrained")
-        self.tokenizer.save_pretrained(f"{out_dir}/best_model")
-        print("processor.save_pretrained")
-        self.processor.save_pretrained(f"{out_dir}/best_model")
-
-        # !zip -r whisper_tiny_atco2_v2 whisper_tiny_atco2_v2
-
+        model.save_pretrained(f"{self.out_dir}/best_model")
+        self.tokenizer.save_pretrained(f"{self.out_dir}/best_model")
+        self.processor.save_pretrained(f"{self.out_dir}/best_model")
 
 
     def prepare_dataset(self, batch):
@@ -132,8 +122,6 @@ class FineTuner:
         batch['input_features'] = self.feature_extractor(audio['array'], sampling_rate=audio['sampling_rate']).input_features[0]
         batch['labels'] = self.tokenizer(batch['text']).input_ids
         return batch
-
-
 
     def compute_metrics(self, pred):
         pred_ids = pred.predictions
@@ -150,8 +138,6 @@ class FineTuner:
         return {'wer': wer}
 
 
-
-# data collator
 @dataclass
 class DataCollatorSpeechSeq2SeqWithPadding:
     processor: Any
@@ -170,10 +156,8 @@ class DataCollatorSpeechSeq2SeqWithPadding:
             labels = labels[:, 1:]
 
         batch['labels'] = labels
-
         return batch
 
 
 if __name__ == "__main__":
     main()
-
