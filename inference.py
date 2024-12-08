@@ -1,4 +1,5 @@
 import torch
+import json
 import argparse
 
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
@@ -6,7 +7,13 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from faster_whisper import WhisperModel
 from multiprocessing import cpu_count
 
+# Use a pipeline as a high-level helper
+# from transformers import pipeline
+# pipe = pipeline("automatic-speech-recognition", model="youngsangroh/whisper-small-finetuned-atco2-asr-atcosim")
+
 def main():
+
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--model',
@@ -18,12 +25,20 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.model == 'tiny':
-        run_tiny_model(args.input)
+    model = args.model
+    audio_path = args.input
 
+    if model == 'tiny.en':
+        run_tiny_model(model, audio_path)
+    elif model == 'tiny':
+        run_tiny_model(model, audio_path)
 
-def run_tiny_model(file_path):
-    model = WhisperModel('tiny', 
+    else:
+        run_fine_tuned_model(args)
+
+def run_tiny_model(model, file_path):
+    model = WhisperModel(
+                        model, 
                         device="cpu", 
                         compute_type="int8", 
                         num_workers=8,
@@ -68,6 +83,7 @@ def run_fine_tuned_model(args):
     )
 
     result = pipe(args.input, generate_kwargs={'task': 'transcribe'})
+    print(result)
     text = result['text']
     print(text)
 

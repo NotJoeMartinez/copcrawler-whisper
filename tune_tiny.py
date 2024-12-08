@@ -19,8 +19,8 @@ def main():
 class FineTuner:
     def __init__(self):
 
-        self.model_id = 'openai/whisper-tiny'
-        self.out_dir = 'whisper_tiny_atco2_v2'
+        self.model_id = 'openai/whisper-tiny-en'
+        self.out_dir = 'whisper_tiny_en_atco2_v2'
         self.epochs = 10
         
         # Reduce batch sizes to fit into MPS memory more easily
