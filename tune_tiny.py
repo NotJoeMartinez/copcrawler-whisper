@@ -36,8 +36,8 @@ class FineTuner:
 
     def run(self):
         print("Loading dataset")
-        atc_dataset_train = load_dataset('jlvdoorn/atco2-asr-atcosim', split='train')
-        atc_dataset_valid = load_dataset('jlvdoorn/atco2-asr-atcosim', split='validation')
+        atc_dataset_train = load_dataset('notjoemartinez/ATCO2-ASR', split='train')
+        atc_dataset_valid = load_dataset('notjoemartinez/ATCO2-ASR', split='validation')
         
         print("Preparing data")
         # Reduce the number of workers and processes 

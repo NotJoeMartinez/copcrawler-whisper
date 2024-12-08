@@ -194,3 +194,6 @@ whisper_tiny_atco2_v2
 models/
 .vscode/
 notes.md
+
+*.ipyn
+scratch/
